@@ -9,6 +9,7 @@ on:
       - 'official_backup.py'
       - 'pages.py'
       - 'static/**'
+      - 'ledger/local-sync.json'
   workflow_dispatch:
     inputs:
       full:

@@ -160,6 +160,38 @@ def persist(base_raw):
     return min(cutoffs,default='')
 
 
+def capture_receipt(status):
+    if status['status'] not in ('ok','backup'):
+        raise RuntimeError('本机未取得官方数据，不能写同步凭据')
+    with app.db_open() as db:
+        row=db.execute('SELECT issue,raw FROM draws ORDER BY issue DESC LIMIT 1').fetchone()
+    if row['issue']!=status['latest']: raise ValueError('本机同步期号与已保存数据不符')
+    write(LEDGER/'local-sync.json',{'issue':row['issue'],'draw_sha256':app.sha(row['raw']),
+                                   'checked_at':status['checked_at'],'source':status['source']})
+
+
+def use_capture(status):
+    """Cloud failure must remain visible, even when a committed local import is usable."""
+    p=LEDGER/'local-sync.json'
+    if status.get('status')!='error' or not p.is_file(): return status
+    try:
+        doc=json.loads(p.read_text(encoding='utf-8'))
+        if doc['source'] not in ('cwl_api','guangdong'): return status
+        from datetime import datetime, timedelta
+        age=app.now()-datetime.fromisoformat(doc['checked_at'])
+        if not timedelta(0)<=age<=timedelta(hours=24): return status
+        with app.db_open(write=True) as db:
+            row=db.execute('SELECT issue,raw FROM draws ORDER BY issue DESC LIMIT 1').fetchone()
+            if row['issue']!=doc['issue'] or app.sha(row['raw'])!=doc['draw_sha256']: return status
+            pending=db.execute("SELECT COUNT(*) FROM draws WHERE json_extract(raw,'$._source')='guangdong_list'").fetchone()[0]
+            status={**status,'status':'local','local_checked_at':doc['checked_at'],
+                    'source':doc['source'],'latest':row['issue'],'prize_pending_count':pending}
+            app.put_meta(db,'sync',status)
+    except (ValueError,TypeError,KeyError,AttributeError) as exc:
+        print(f'Invalid local synchronization receipt: {type(exc).__name__}',flush=True)
+    return status
+
+
 def release_issue():
     # This snapshot was generated before the target draw, independently of this build.
     return '2026316'
@@ -197,12 +229,21 @@ def main():
     p.add_argument('--offline',action='store_true',help='Build from ledger and bundled official seed; no network')
     p.add_argument('--full',action='store_true',help='Fetch and validate all historical issues')
     p.add_argument('--persist',action='store_true',help='Write ledger files (does not commit or push)')
+    p.add_argument('--capture',action='store_true',help='Verify official data from this machine and persist it without building the site')
     p.add_argument('--output',type=Path,default=ROOT/'_site')
     a=p.parse_args()
+    if a.capture and a.offline: p.error('--capture requires an online check')
     with TemporaryDirectory(prefix='kl8-pages-') as temp:
         app.DB_PATH=Path(temp)/'work.sqlite3'
         baseline=restore()
         result={} if a.offline else sync(a.full)
+        if a.capture:
+            if result.get('status') not in ('ok','backup'):
+                print(app.dump(result)); raise SystemExit(2)
+            cutoff=persist(baseline)
+            capture_receipt(result)
+            print(app.dump({'sync':result,'new_lock_cutoff':cutoff})); return
+        result=use_capture(result)
         if a.offline:
             with app.db_open(write=True) as db:
                 app.put_meta(db,'sync',{'status':'seed','checked_at':None})

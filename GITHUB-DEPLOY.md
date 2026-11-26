@@ -39,6 +39,8 @@ python3 -m http.server 8080 --directory _site --bind 127.0.0.1
 
 浏览器打开 `http://127.0.0.1:8080/`。不要用 `file://` 直接打开 HTML。离线只构建随包或仓库快照，不访问官网。`python3 pages.py --full` 可联网本地核对但不修改仓库档案；`--persist` 才写入 `ledger/`，仍不会自行提交或推送。不要上传 `_site/`，Pages 会从源码重新构建。
 
+如果 GitHub 运行器长期无法访问官方源，可在能访问的机器上先把工作副本快进到最新默认分支，再执行 `python3 -B pages.py --capture`。只有成功读取官方数据才会写入其核验结果。检查 `git diff` 确认仅预期的 `ledger/` 文件变更后，提交并普通推送，GitHub 便会自动重发。若本次生成了新锁号，必须在输出的 `new_lock_cutoff` 之前推送；超过截止不要推送迟到的新锁。该方式需要人工或另设可信常驻同步机，不会修复 GitHub 与福彩之间的网络限制。
+
 ```bash
 python3 -B -m unittest discover -s tests -v
 node --check static/app.js

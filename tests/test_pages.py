@@ -83,6 +83,17 @@ class PagesTests(unittest.TestCase):
         pages.persist(baseline)
         self.assertEqual([p.stem for p in (pages.LEDGER/'forecasts').glob('*.json')],['2026316'])
 
+    def test_capture_receipt_requires_matching_draw_and_recent_check(self):
+        pages.restore()
+        dt=datetime.fromisoformat('2026-11-26T21:40:00+08:00')
+        with patch.object(app,'now',return_value=dt):
+            fail={'status':'error','primary_error':'HTTP 403','reason':'URLError'}
+            self.assertEqual(pages.use_capture(fail),fail)
+            pages.capture_receipt({'status':'ok','latest':'2026315','checked_at':app.stamp(),'source':'cwl_api'})
+            self.assertEqual(pages.use_capture(fail)['status'],'local')
+            with app.db_open(write=True) as db: app.import_draws(db,[self.extra()])
+            self.assertEqual(pages.use_capture(fail),fail)
+
     def test_late_start_does_not_backfill_live_lock(self):
         pages.restore()
         # Latest official result is from the day before the issue that just closed.
