@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#163b33"><title>快乐8 · 开奖研究站</title>
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./extras.css">
+</head>
+<body>
+  <header class="topbar"><a href="./" class="brand"><span class="mark">8</span><span>快乐8 <small>开奖研究站</small></span></a><div class="top-actions"><span id="live" class="live"><i></i>正在读取已发布数据</span><button id="sync" class="icon-button" title="刷新网站显示" aria-label="刷新网站显示">⟳</button></div></header>
+  <main>
+    <section class="overview"><div class="heading-row"><div><p class="eyebrow">OFFICIAL RESULTS & WALK-FORWARD STATS</p><h1>快乐8 开奖与组合研究</h1></div><span id="serverTime" class="server-time">-</span></div>
+      <div class="stats-strip"><div><span>最新期号</span><strong id="latestIssue">-</strong></div><div><span>开奖日期</span><strong id="latestDate">-</strong></div><div><span>已收录开奖</span><strong id="drawCount">-</strong></div><div><span>顺序回测期数</span><strong id="backtestCount">-</strong></div></div>
+      <div class="source-line"><span class="dot"></span>来源：中国福利彩票官方网站 <a id="sourceLink" href="https://www.cwl.gov.cn/html5/ygkj/wqkjgg/kl8/" target="_blank" rel="noreferrer">查看官方开奖页 ↗</a><span id="syncStatus"></span></div>
+    </section>
+    <section class="panel latest-panel"><div class="section-title"><div><span class="section-no">01</span><h2>最新开奖结果</h2></div><span id="sales" class="quiet"></span></div><div id="latestNumbers" class="balls"></div><div class="latest-foot"><span id="poolmoney"></span><span>20 个号码 · 1–80 不重复</span></div></section>
+    <section class="panel forecast-panel"><div class="section-title"><div><span class="section-no">02</span><h2>本期锁定预测</h2></div><span class="locked"><span>▣</span>仓库固定</span></div><div id="forecast"></div></section>
+    <section class="panel"><div class="section-title"><div><span class="section-no">03</span><h2>预序回测表现</h2></div><span class="quiet">最近最多120期 · 每期仅用此前数据</span></div><p class="panel-note">Brier 越低越好；若历史候选算法未显示稳定改善，发布方案继续采用公平抽取基线。历史命中并不保证未来表现。</p><div class="table-wrap"><table id="backtests"><thead><tr><th>方法</th><th>样本</th><th>Brier 分数</th><th>前4命中均值</th><th>前10命中均值</th></tr></thead><tbody></tbody></table></div><div class="chart-wrap"><svg id="chart" viewBox="0 0 720 180" role="img" aria-label="不同方法的滚动Brier分数"></svg><div class="chart-labels"><span>较低</span><span>Brier 分数 · 最近120期</span><span>较高</span></div></div></section>
+    <section class="panel"><div class="section-title"><div><span class="section-no">04</span><h2>玩法概率与方案</h2></div><label class="select-label">玩法 <select id="playSelect"></select></label></div><p id="playSummary" class="panel-note"></p><div id="playDetail"></div></section>
+    <section class="panel four-panel"><div class="section-title"><div><span class="section-no">05</span><h2>4 胆全拖分析</h2></div><span class="tag">重点玩法</span></div><div id="fourDan"></div></section>
+    <section class="panel"><div class="section-title"><div><span class="section-no">06</span><h2>历史开奖</h2></div><a class="link" href="./history.csv">下载全部 CSV ↓</a></div><div class="history-controls"><button id="prev" type="button">上一页</button><span id="pageLabel" class="quiet"></span><button id="next" type="button">下一页</button><label class="select-label">每页 <select id="historyLimit"><option>30</option><option selected>60</option><option>120</option></select> 期</label></div><div class="table-wrap"><table id="history"><thead><tr><th>期号</th><th>日期</th><th>开奖号码</th><th>销售额</th><th>奖池</th></tr></thead><tbody></tbody></table></div></section>
+    <section class="panel" id="archive"><div class="section-title"><div><span class="section-no">07</span><h2>验奖与逐期档案</h2></div><label class="select-label">实盘记录 <select id="liveRounds" aria-label="实盘记录"><option value="">选择期号</option></select></label></div><p class="panel-note">可点击历史表里的期号，或输入任意期号查询。实盘记录只包含开奖前已锁定的预测。</p><form id="roundForm"><label>期号 <input id="roundIssue" inputmode="numeric" pattern="20[0-9]{5}" maxlength="7" required placeholder="例如 2026315"></label> <button type="submit">查询</button></form><div id="roundDetail" aria-live="polite"></div></section>
+    <section class="disclaimer"><strong>统计说明</strong><p>快乐8为随机开奖。每个号码在公平抽取假设下单期边际概率为 25%，近期冷热不改变这一概率。本页只展示统计模型、精确组合概率和已发生开奖的历史表现，不承诺预测准确率。投注有风险，请理性参与。</p><p>规则基准：中国福利彩票现行快乐8游戏规则（2025-12-30 起施行）。开奖号码以当期中国福彩网公告为准。9 中 9、10 中 10 为浮动奖，本页不把理论奖金冒充实际奖金。</p><a href="https://www.cwl.gov.cn/c/2025/12/29/472721.shtml" target="_blank" rel="noreferrer">查看现行规则 ↗</a></section>
+  </main>
+  <footer><span>KL8 OBSERVATORY</span><span>预测首次写入 GitHub 仓库后锁定，不因访问、刷新或工作流重跑而变化。本站不提供购彩服务。</span></footer>
+  <div id="toast" class="toast" aria-live="polite"></div><script src="./app.js" defer></script>
+</body>
+</html>

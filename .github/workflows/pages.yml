@@ -1,0 +1,87 @@
+name: 快乐8 · 同步并发布
+
+on:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 全量核对官方历史开奖
+        type: boolean
+        default: false
+  schedule:
+    # UTC. 20:17 Beijing: daily full history reconciliation before the 21:00 cutoff.
+    - cron: '17 12 * * *'
+    # Other hourly checks. Avoid :00, when hosted runners are busiest.
+    - cron: '17 0-11,15-23 * * *'
+    # More frequent checks near the official 21:30 Beijing announcement window.
+    - cron: '11,26,41,56 13-14 * * *'
+
+permissions: {}
+
+concurrency:
+  group: kl8-pages-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: write
+      pages: read
+    steps:
+      - name: Checkout latest default branch, not a queued event snapshot
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Fetch, settle and render
+        id: build
+        env:
+          FULL: ${{ inputs.full || (github.event_name == 'schedule' && github.event.schedule == '17 12 * * *') }}
+          KL8_CLOSED: ${{ vars.KL8_CLOSED }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        shell: bash
+        run: |
+          if [[ "$FULL" == 'true' ]]; then
+            python3 pages.py --persist --full
+          else
+            python3 pages.py --persist
+          fi
+          test -s _site/data/state.json
+      - name: Persist picks and official revisions before any publication
+        env:
+          NEW_LOCK_CUTOFF: ${{ steps.build.outputs.new_lock_cutoff }}
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- ledger
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record official draws, frozen forecasts and settlements'
+            if [[ -n "$NEW_LOCK_CUTOFF" ]] && (( $(date +%s) >= $(date -d "$NEW_LOCK_CUTOFF" +%s) )); then
+              echo '::error::Lock cutoff passed before persistence; rerun the sync without a late lock.'
+              exit 1
+            fi
+            git push origin "HEAD:refs/heads/$GITHUB_REF_NAME"
+          fi
+      - name: Upload static site only
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
