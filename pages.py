@@ -1,7 +1,6 @@
 """Reconstruct a temporary SQLite DB from the public Git ledger and build Pages."""
 import argparse
 from datetime import date
-from http.client import HTTPException
 import json
 from pathlib import Path
 import shutil
@@ -11,6 +10,8 @@ import os
 import hashlib
 
 import app
+import official_backup
+from urllib.error import HTTPError
 
 ROOT = Path(__file__).resolve().parent
 LEDGER = ROOT / 'ledger'
@@ -81,6 +82,7 @@ def restore():
 def sync(force=False):
     """Escalate an incomplete local history to full fetch and retry transient failures."""
     full=force
+    primary_error=None
     for attempt in range(3):
         try:
             records,total=app.fetch_official(full)
@@ -97,18 +99,42 @@ def sync(force=False):
                 app.settle(db)
                 issue=app.pack_forecast(db,engine,rows[-1])
                 status={'status':'ok','checked_at':app.stamp(),'official_total':total,
-                        'latest':rows[-1]['issue'],'forecast_issue':issue,'changed':changed,'full':full}
+                        'latest':rows[-1]['issue'],'forecast_issue':issue,'changed':changed,'full':full,
+                        'source':'cwl_api'}
                 app.put_meta(db,'sync',status)
             return status
-        except (OSError,HTTPException,ValueError,RuntimeError,KeyError,TypeError,AttributeError) as exc:
+        except official_backup.NET_ERRORS as exc:
+            primary_error=error_reason(exc)
+            print(f'Primary sync attempt {attempt+1}: {primary_error}: {exc}',flush=True)
             if isinstance(exc,HistoryGap): full=True
+            if isinstance(exc,HTTPError) and exc.code in (401,403,404,429,451): break
             if attempt<2: time.sleep(2**(attempt+1))
-            else:
-                status={'status':'error','checked_at':app.stamp(),
-                        'error':'官网数据同步失败，保留上次已保存数据','reason':type(exc).__name__}
-                with app.db_open(write=True) as db: app.put_meta(db,'sync',status)
-                print(f'Official sync failed: {type(exc).__name__}: {exc}',flush=True)
-                return status
+    try:
+        records, latest=official_backup.fetch_recent()
+        with app.db_open(write=True) as db:
+            changed=app.import_draws(db,records)
+            rows=db.execute('SELECT * FROM draws ORDER BY issue').fetchall()
+            app.audit(rows)
+            if rows[-1]['issue']!=latest: raise HistoryGap('备用源最新一期尚未完整入库')
+            engine=app.replay(db,rows,False)
+            app.settle(db)
+            issue=app.pack_forecast(db,engine,rows[-1])
+            pending=db.execute("SELECT COUNT(*) FROM draws WHERE json_extract(raw,'$._source')='guangdong_list'").fetchone()[0]
+            status={'status':'backup','checked_at':app.stamp(),'latest':latest,'forecast_issue':issue,
+                    'changed':changed,'source':'guangdong','full':False,'prize_pending_count':pending,
+                    'primary_error':primary_error}
+            app.put_meta(db,'sync',status)
+    except official_backup.NET_ERRORS as exc:
+        status={'status':'error','checked_at':app.stamp(),
+                'error':'官网数据同步失败，保留上次已保存数据','primary_error':primary_error,
+                'reason':error_reason(exc)}
+        with app.db_open(write=True) as db: app.put_meta(db,'sync',status)
+        print(f'Backup sync failed: {status["reason"]}: {exc}',flush=True)
+    return status
+
+
+def error_reason(exc):
+    return f'HTTP {exc.code}' if isinstance(exc,HTTPError) else type(exc).__name__
 
 
 def persist(base_raw):

@@ -1,6 +1,14 @@
 name: 快乐8 · 同步并发布
 
 on:
+  push:
+    paths:
+      - '.github/workflows/pages.yml'
+      - 'app.py'
+      - 'model.py'
+      - 'official_backup.py'
+      - 'pages.py'
+      - 'static/**'
   workflow_dispatch:
     inputs:
       full:

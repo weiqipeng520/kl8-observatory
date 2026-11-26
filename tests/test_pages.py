@@ -74,7 +74,8 @@ class PagesTests(unittest.TestCase):
     def test_failure_build_keeps_old_lock_and_data(self):
         baseline=pages.restore()
         before=app.get_round('2026316')['forecast']
-        with patch.object(app,'fetch_official',side_effect=http.client.IncompleteRead(b'')) as fetch:
+        with patch.object(app,'fetch_official',side_effect=http.client.IncompleteRead(b'')) as fetch, \
+                patch('official_backup.fetch_recent',side_effect=OSError('offline')):
             self.assertEqual(pages.sync()['status'],'error')
         self.assertEqual(fetch.call_count,3)
         self.assertEqual(app.get_round('2026316')['forecast'],before)
