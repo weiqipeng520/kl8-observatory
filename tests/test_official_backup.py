@@ -1,5 +1,7 @@
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 from urllib.error import HTTPError
 from unittest.mock import patch
 
@@ -31,10 +33,39 @@ class BackupTests(unittest.TestCase):
         with self.assertRaises(backup.SourceDisagreement):
             backup.announcement(markup.format(','.join(map(str,range(2,22)))),record)
 
+    def test_national_announcement_advances_and_settles_on_primary_403(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(app,'DB_PATH',Path(temp)/'test.sqlite3'), \
+             patch.object(pages,'LEDGER',Path(temp)/'ledger'):
+            pages.restore()
+            frozen=app.get_round('2026316')['forecast']
+            red=','.join(map(str,frozen['ranking'][:20]))
+            day='2026-11-26'
+            index=(f'<div class="kl8Qh-dom">2026316</div><div class="klRed-dom">[{red}]</div>'
+                   '<div class="kl8XqLink-dom">/c/2026/11/26/674638.shtml</div>')
+            zh='零一二三四五六七八九十'
+            prizes=''.join(f'<tr><td>选{zh[k]}'+(f'中{zh[h]}' if h else '全不中')+
+                           f'</td><td>1</td><td>{amount or 0}</td></tr>'
+                           for k,tiers in app.PRIZE_TABLE.items() for h,amount in tiers.items())
+            detail=(f'<h1>中国福利彩票“快乐8”第2026316期开奖公告</h1><p>开奖日期：{day}</p>'
+                    f'<script>var kjh = "{red}".split(\',\')</script><table>{prizes}</table>')
+            denied=HTTPError(app.API,403,'Forbidden',None,None)
+            with patch.object(app,'now',return_value=datetime.fromisoformat(day+'T22:00:00+08:00')), \
+                 patch.object(app,'fetch_official',side_effect=denied) as primary, \
+                 patch.object(backup,'html',side_effect=[index,detail]), \
+                 patch.object(backup,'fetch_recent') as regional:
+                status=pages.sync()
+            self.assertEqual(primary.call_count,1)
+            regional.assert_not_called()
+            self.assertEqual((status['status'],status['source'],status['latest'],status['forecast_issue']),
+                             ('backup','cwl_announcement','2026316','2026317'))
+            round_data=app.get_round('2026316')
+            self.assertEqual(round_data['forecast'],frozen)
+            self.assertEqual(round_data['settlement']['top4_hits'],4)
+            self.assertEqual(len(round_data['draw']['prizes']),39)
+
     def test_update_and_partial_payout_on_primary_403(self):
-        import tempfile
-        from pathlib import Path
-        with tempfile.TemporaryDirectory() as temp, patch.object(app,'DB_PATH',Path(temp)/'test.sqlite3'):
+        with tempfile.TemporaryDirectory() as temp, patch.object(app,'DB_PATH',Path(temp)/'test.sqlite3'), \
+             patch.object(pages,'LEDGER',Path(temp)/'ledger'):
             pages.restore()
             old=app.get_round('2026316')['forecast']
             first=app.get_round('2026315')['draw']
@@ -42,6 +73,7 @@ class BackupTests(unittest.TestCase):
             issue_clock=datetime.fromisoformat('2026-11-26T21:55:00+08:00')
             denied=HTTPError(app.API,403,'Forbidden',None,None)
             with patch.object(app,'now',return_value=issue_clock), patch.object(app,'fetch_official',side_effect=denied) as primary, \
+                 patch.object(backup,'fetch_national',side_effect=denied), \
                  patch.object(backup,'html',side_effect=[data,denied]) as regional:
                 status=pages.sync()
             self.assertEqual(primary.call_count,1)

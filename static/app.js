@@ -98,11 +98,16 @@ async function refresh(manual=false){
     const status=s.sync||{},live=$('#live');
     const expired=Date.now()-Date.parse(status.checked_at)>3*3600000;
     live.classList.toggle('stale',status.status!=='ok'||expired);
-    live.innerHTML=`<i></i>${status.status==='error'?'最近同步失败 · 保留已存数据':expired?'数据检查已超过 3 小时':status.status==='backup'?'已检查广东福彩 · 备用源':status.status==='local'?'已导入本机核验数据 · 云端暂不可用':status.status!=='ok'?'离线快照 · 待在线同步':'已同步全国福彩官网'}`;
+    live.innerHTML=`<i></i>${status.status==='error'?'最近同步失败 · 保留已存数据':expired?'数据检查已超过 3 小时':status.status==='backup'?(status.source==='cwl_announcement'?'已同步全国福彩公告 · 备用源':'已检查广东福彩 · 备用源'):status.status==='local'?'已导入本机核验数据 · 云端暂不可用':status.status!=='ok'?'离线快照 · 待在线同步':'已同步全国福彩官网'}`;
     const messages=[];
     if(status.checked_at)messages.push(`最近检查 ${status.checked_at.slice(0,19).replace('T',' ')}`);
     if(status.primary_error)messages.push(`全国接口：${status.primary_error}`);
-    if(['error','local'].includes(status.status)&&status.reason)messages.push(`备用源：${status.reason}`);
+    if(['error','local'].includes(status.status)&&status.reason){
+      const errors=status.backup_errors;
+      if(errors?.cwl_announcement)messages.push(`全国公告：${errors.cwl_announcement}`);
+      if(errors?.guangdong)messages.push(`广东福彩：${errors.guangdong}`);
+      if(!errors)messages.push(`备用源：${status.reason}`);
+    }
     if(status.local_checked_at)messages.push(`本机核验 ${status.local_checked_at.slice(0,19).replace('T',' ')}`);
     if(status.prize_pending_count)messages.push(`${fmt.format(status.prize_pending_count)} 期奖金明细未齐`);
     $('#syncStatus').textContent=messages.join(' · ');

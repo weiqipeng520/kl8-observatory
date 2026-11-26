@@ -75,6 +75,7 @@ class PagesTests(unittest.TestCase):
         baseline=pages.restore()
         before=app.get_round('2026316')['forecast']
         with patch.object(app,'fetch_official',side_effect=http.client.IncompleteRead(b'')) as fetch, \
+                patch('official_backup.fetch_national',side_effect=OSError('offline')), \
                 patch('official_backup.fetch_recent',side_effect=OSError('offline')):
             self.assertEqual(pages.sync()['status'],'error')
         self.assertEqual(fetch.call_count,3)

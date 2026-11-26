@@ -9,6 +9,7 @@ import app
 
 GD_URL = 'https://www.gdfc.org.cn/lottery/kl8.html?period=100'
 CWL_HOST = 'https://www.cwl.gov.cn'
+CWL_INDEX = CWL_HOST + '/ygkj/kjgg/'
 ARTICLE = re.compile(r'https://www\.cwl\.gov\.cn(/(?:html5/)?c/(20\d{2})/(\d{2})/(\d{2})/\d+\.shtml)')
 NET_ERRORS = (HTTPException, OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError)
 
@@ -66,7 +67,7 @@ def announcement(text,rec):
     if not(title and title[1]==issue and date and date[1]==day and nums):
         raise ValueError(f'{issue} 期全国福彩公告未确认期号与日期')
     if sorted(app.balls(nums[1],issue))!=rec['numbers']:
-        raise SourceDisagreement(f'{issue} 期全国与广东福彩开奖号码不一致')
+        raise SourceDisagreement(f'{issue} 期公告正文与开奖列表的号码不一致')
     prizes={}
     for row in rows(text):
         cells=[re.sub(r'\s+','',unescape(re.sub(r'<[^>]*>','',x))) for x in re.findall(r'<td\b[^>]*>(.*?)</td\s*>',row,re.I|re.S)]
@@ -83,6 +84,43 @@ def announcement(text,rec):
     raw['prizegrades']=list(prizes.values())
     raw['_source']='cwl_announcement' if EXPECTED<=prizes.keys() else 'guangdong_list'
     return app.parse_draw(raw)
+
+
+def national_index(text):
+    def field(name):
+        hit=re.findall(r'<div\s+class=["\']'+re.escape(name)+r'["\']\s*>\s*([^<]+?)\s*</div>',text)
+        if len(hit)!=1: raise ValueError(f'全国福彩公告首页缺少唯一的 {name} 字段')
+        return unescape(hit[0])
+    code,path,numbers=map(field,('kl8Qh-dom','kl8XqLink-dom','klRed-dom'))
+    match=ARTICLE.fullmatch(CWL_HOST+path)
+    if not match or not re.fullmatch(r'\[\s*[0-9,\s]+\s*\]',numbers):
+        raise ValueError('全国福彩公告首页详情地址或开奖号码不符')
+    raw={'code':code,'date':'-'.join(match.groups()[1:]),'red':numbers[1:-1],
+         'detailsLink':path,'_source':'cwl_index'}
+    return app.parse_draw(raw)
+
+
+def fetch_national():
+    latest=national_index(html(CWL_INDEX))
+    if latest['date']>app.now().date().isoformat(): raise ValueError('全国福彩公告日期在将来')
+    article=announcement(html(latest['official_url']),latest)
+    if article['raw']['_source']!='cwl_announcement':
+        raise ValueError('全国福彩公告奖金明细尚未完整')
+    with app.db_open() as db:
+        tip=db.execute('SELECT * FROM draws ORDER BY issue DESC LIMIT 1').fetchone()
+    if not tip or latest['issue']<tip['issue']:
+        raise ValueError('全国福彩公告首页落后于本地记录')
+    if latest['issue']==tip['issue']:
+        saved=app.unpack(tip,prizes=True)
+        for key in ('sales','poolmoney'):
+            if article[key] is None and saved[key] is not None:
+                article['raw'][key]=saved[key]
+        if saved['draw_order'] and saved['numbers']==article['numbers']:
+            article['raw']['kjhyjsx']=','.join(map(str,saved['draw_order']))
+        article=app.parse_draw(article['raw'])
+        if all(saved[k]==article[k] for k in ('date','numbers','prizes','sales','poolmoney','official_url')):
+            return [],latest['issue']
+    return [article],latest['issue']
 
 
 def fetch_recent():

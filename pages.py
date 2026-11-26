@@ -109,27 +109,32 @@ def sync(force=False):
             if isinstance(exc,HistoryGap): full=True
             if isinstance(exc,HTTPError) and exc.code in (401,403,404,429,451): break
             if attempt<2: time.sleep(2**(attempt+1))
-    try:
-        records, latest=official_backup.fetch_recent()
-        with app.db_open(write=True) as db:
-            changed=app.import_draws(db,records)
-            rows=db.execute('SELECT * FROM draws ORDER BY issue').fetchall()
-            app.audit(rows)
-            if rows[-1]['issue']!=latest: raise HistoryGap('备用源最新一期尚未完整入库')
-            engine=app.replay(db,rows,False)
-            app.settle(db)
-            issue=app.pack_forecast(db,engine,rows[-1])
-            pending=db.execute("SELECT COUNT(*) FROM draws WHERE json_extract(raw,'$._source')='guangdong_list'").fetchone()[0]
-            status={'status':'backup','checked_at':app.stamp(),'latest':latest,'forecast_issue':issue,
-                    'changed':changed,'source':'guangdong','full':False,'prize_pending_count':pending,
-                    'primary_error':primary_error}
-            app.put_meta(db,'sync',status)
-    except official_backup.NET_ERRORS as exc:
-        status={'status':'error','checked_at':app.stamp(),
-                'error':'官网数据同步失败，保留上次已保存数据','primary_error':primary_error,
-                'reason':error_reason(exc)}
-        with app.db_open(write=True) as db: app.put_meta(db,'sync',status)
-        print(f'Backup sync failed: {status["reason"]}: {exc}',flush=True)
+    backup_errors={}
+    for source,fetch in (('cwl_announcement',official_backup.fetch_national),('guangdong',official_backup.fetch_recent)):
+        try:
+            records, latest=fetch()
+            with app.db_open(write=True) as db:
+                changed=app.import_draws(db,records)
+                rows=db.execute('SELECT * FROM draws ORDER BY issue').fetchall()
+                app.audit(rows)
+                if rows[-1]['issue']!=latest: raise HistoryGap('备用源最新一期尚未完整入库')
+                engine=app.replay(db,rows,False)
+                app.settle(db)
+                issue=app.pack_forecast(db,engine,rows[-1])
+                pending=db.execute("SELECT COUNT(*) FROM draws WHERE json_extract(raw,'$._source')='guangdong_list'").fetchone()[0]
+                status={'status':'backup','checked_at':app.stamp(),'latest':latest,'forecast_issue':issue,
+                        'changed':changed,'source':source,'full':False,'prize_pending_count':pending,
+                        'primary_error':primary_error}
+                app.put_meta(db,'sync',status)
+            return status
+        except official_backup.NET_ERRORS as exc:
+            backup_errors[source]=error_reason(exc)
+            print(f'{source} sync failed: {backup_errors[source]}: {exc}',flush=True)
+            if isinstance(exc,official_backup.SourceDisagreement): break
+    status={'status':'error','checked_at':app.stamp(),
+            'error':'官网数据同步失败，保留上次已保存数据','primary_error':primary_error,
+            'reason':next(reversed(backup_errors.values())),'backup_errors':backup_errors}
+    with app.db_open(write=True) as db: app.put_meta(db,'sync',status)
     return status
 
 
@@ -176,7 +181,7 @@ def use_capture(status):
     if status.get('status')!='error' or not p.is_file(): return status
     try:
         doc=json.loads(p.read_text(encoding='utf-8'))
-        if doc['source'] not in ('cwl_api','guangdong'): return status
+        if doc['source'] not in ('cwl_api','cwl_announcement','guangdong'): return status
         from datetime import datetime, timedelta
         age=app.now()-datetime.fromisoformat(doc['checked_at'])
         if not timedelta(0)<=age<=timedelta(hours=24): return status
